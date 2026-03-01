@@ -1,0 +1,97 @@
+@echo off
+title Start MusicBot By VeloxGG
+color 0a
+
+echo ========================================
+echo       MusicBot Setup and Run Script     
+echo ========================================
+echo.
+
+:: Check if Python is installed
+python --version >nul 2>&1
+IF %ERRORLEVEL% EQU 0 GOTO PYTHON_INSTALLED
+
+echo [SETUP] It looks like Python is not installed yet. Don't worry!
+echo [SETUP] Initializing automatic Python installation using winget...
+winget install -e --id Python.Python.3.11 --accept-package-agreements --accept-source-agreements
+
+:: Refreshing Environment Variables in Batch is tricky, so we check using the Windows Python Launcher ('py') instead, 
+:: or simply tell the user to restart the file.
+py --version >nul 2>&1
+IF %ERRORLEVEL% EQU 0 GOTO PYTHON_NEWLY_INSTALLED
+
+echo [ERROR] Failed to find Python even after installation.
+echo Please install Python manually from https://www.python.org/downloads/
+echo **IMPORTANT**: Make sure to check the box "Add Python to PATH" during installation.
+pause
+exit /b
+
+:PYTHON_NEWLY_INSTALLED
+echo [SUCCESS] Python has been installed successfully!
+echo [IMPORTANT] Your system needs to refresh its settings.
+echo Please CLOSE this window and double-click start.bat again to continue!
+pause
+exit /b
+
+:PYTHON_INSTALLED
+echo [INFO] Python is installed.
+
+:: Check if FFmpeg is installed
+ffmpeg -version >nul 2>&1
+IF %ERRORLEVEL% EQU 0 GOTO FFMPEG_INSTALLED
+
+echo [SETUP] FFmpeg is missing. It is required for playing audio.
+echo [SETUP] Installing FFmpeg via winget...
+winget install -e --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements
+
+ffmpeg -version >nul 2>&1
+IF %ERRORLEVEL% EQU 0 GOTO FFMPEG_NEWLY_INSTALLED
+
+echo [ERROR] Failed to find FFmpeg even after installation.
+echo Please install FFmpeg manually from https://gyan.dev/ffmpeg/builds/
+pause
+exit /b
+
+:FFMPEG_NEWLY_INSTALLED
+echo [SUCCESS] FFmpeg has been installed successfully!
+echo [IMPORTANT] Your system needs to refresh its settings.
+echo Please CLOSE this window and double-click start.bat again to continue!
+pause
+exit /b
+
+:FFMPEG_INSTALLED
+echo [INFO] FFmpeg is installed.
+
+:: Create virtual environment if it doesn't exist
+IF EXIST "venv\Scripts\activate.bat" GOTO VENV_EXISTS
+
+echo [SETUP] Creating your virtual environment (venv) for the first time...
+python -m venv venv
+IF %ERRORLEVEL% EQU 0 GOTO VENV_CREATED
+
+echo [ERROR] Failed to create virtual environment. Please check your system settings.
+pause
+exit /b
+
+:VENV_CREATED
+echo [SUCCESS] Virtual environment created.
+
+:VENV_EXISTS
+:: Activate the virtual environment
+echo [INFO] Activating virtual environment...
+call venv\Scripts\activate.bat
+
+:: Install requirements
+echo [INFO] Installing/Updating required libraries...
+python -m pip install --upgrade pip >nul 2>&1
+pip install -r requirement_lib.txt
+
+:: Start the bot
+echo.
+echo ========================================
+echo           Starting the Bot...           
+echo ========================================
+
+:: Use start and pythonw to run the bot without a console window, then close the terminal.
+start "" pythonw bot.py
+exit
