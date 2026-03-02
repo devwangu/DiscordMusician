@@ -236,6 +236,11 @@ class MusicBotGUI(ctk.CTk):
         if os.path.exists("icon.ico"):
             try:
                 self.iconbitmap("icon.ico")
+                
+                # เปลี่ยนไอคอนที่ Taskbar (เฉพาะ Windows) แยกระบบออกจาก Python ปกติ
+                import ctypes
+                myappid = 'veloxgg.musicbot.launcher.v1'
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
             except Exception:
                 pass
 
