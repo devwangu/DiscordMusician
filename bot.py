@@ -37,6 +37,17 @@ ffmpeg_options = {
 
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
+# สร้างตัวแปรดึงข้อมูลสำหรับแค่ค้นหาหรือเช็คเพลย์ลิสต์แบบเร็ว (extract_flat)
+ytdl_flat_options = {
+    'extract_flat': True, # เปลี่ยนเป็น True เพื่อให้มันไม่พยายามโหลดข้อมูลลึกๆ ของวิดีโอ
+    'playlist_items': '1-50', # ให้โหลดแค่ 1-50 เพลงแรกจากเว็บเลย จะได้ไม่เสียเวลาโหลดมาทั้งหมด 
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0', 
+}
+ytdl_flat = youtube_dl.YoutubeDL(ytdl_flat_options)
+
 # ----------------- ตัวแปรระบบคิวเพลง ----------------- #
 music_queues = {}
 current_song = {}
@@ -63,27 +74,56 @@ def play_next(ctx):
         song = queue_list.pop(0)
         current_song[ctx.guild.id] = song
         
-        # เตรียมเสียง
-        audio_source = discord.FFmpegPCMAudio(song['url'], **ffmpeg_options)
-        # สั่งเล่นและตั้งให้เมื่อจบไปเรียก play_next ตัวเอง
-        ctx.voice_client.play(discord.PCMVolumeTransformer(audio_source, volume=0.5), after=lambda e: play_next(ctx))
-        
-        # สร้าง Coroutine เพื่อส่งข้อความ (ใน lambda ไม่เป็น async จึงต้องใช้วิธีฝาก Event Loop)
-        coro = ctx.send(f'🎶 กำลังเล่นอัตโนมัติ: **{song["title"]}**')
-        asyncio.run_coroutine_threadsafe(coro, bot.loop)
+        # ให้มันไปดึง URL สตรีมช้าๆ ใน Background Task จะได้ไม่ค้างและไม่หมดอายุตอนรอคิว
+        bot.loop.create_task(prepare_and_play(ctx, song))
     else:
         current_song[ctx.guild.id] = None
 
-# ฟังก์ชันดึง URL ที่จะใช้เล่นจาก yt-dlp แบบพื้นฐานที่สุด
+async def prepare_and_play(ctx, song):
+    try:
+        loop = bot.loop
+        # ฟังก์ชันดาวน์โหลด URL จริง (ถ้าเป็นลิงก์ Youtube)
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(song['url'], download=False))
+        
+        if 'entries' in data:
+            data = data['entries'][0]
+            
+        stream_url = data['url']
+        
+        # เตรียมเสียง
+        audio_source = discord.FFmpegPCMAudio(stream_url, **ffmpeg_options)
+        # สั่งเล่นและตั้งให้เมื่อจบไปเรียก play_next ตัวเอง
+        ctx.voice_client.play(discord.PCMVolumeTransformer(audio_source, volume=0.5), after=lambda e: play_next(ctx))
+        
+        await ctx.send(f'🎶 กำลังเล่น: **{song["title"]}**')
+    except Exception as e:
+        await ctx.send(f"❌ เกิดข้อผิดพลาดในการดึงเสียงของเพลง **{song['title']}**: {str(e)}")
+        # ถ้าเพลงมีปัญหา ข้ามไปเพลงต่อไปเลย
+        play_next(ctx)
+
+# ฟังก์ชันดึงข้อมูลแบบรวดเร็ว (Flat Extraction) เหมาะสำหรับเพลย์ลิสต์
 def get_audio_info(query):
-    # ค้นหาว่าเป็นลิงก์หรือข้อความธรรมดา
-    search_query = query if query.startswith('http') else f"ytsearch:{query}"
-    data = ytdl.extract_info(search_query, download=False)
+    # ค้นหาว่าเป็นลิงก์หรือข้อความธรรมดา (ถ้าเป็นการค้นหาแบบข้อความให้ดึงมาแค่ 1 อัน ytsearch1:)
+    search_query = query if query.startswith('http') else f"ytsearch1:{query}"
+    data = ytdl_flat.extract_info(search_query, download=False)
     
-    if 'entries' in data: # ถ้าเป็นการค้นหา หรือเป็น playlist จะไปเอาตัวแรก
-        data = data['entries'][0]
-    
-    return {'url': data['url'], 'title': data.get('title', query)}
+    entries = []
+    if 'entries' in data: # ถ้าเป็นเพลย์ลิสต์ หรือผลการค้นหา
+        for entry in data['entries']:
+            if entry:
+                url = entry.get('url') or entry.get('webpage_url')
+                if not url and entry.get('id'):
+                    url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+                if url:
+                    entries.append({'url': url, 'title': entry.get('title', 'Unknown Title')})
+    else:
+        url = data.get('webpage_url') or data.get('url')
+        if not url and data.get('id'):
+            url = f"https://www.youtube.com/watch?v={data.get('id')}"
+        if url:
+             entries.append({'url': url, 'title': data.get('title', 'Unknown Title')})
+        
+    return entries
 
 
 # ----------------- คำสั่งบอท (Commands) ----------------- #
@@ -115,20 +155,38 @@ async def play(ctx, *, query):
         try:
             # ใช้ event loop เพื่อไม่ให้บอทค้างตอนค้นหาเพลง
             loop = asyncio.get_event_loop()
-            song = await loop.run_in_executor(None, get_audio_info, query)
+            songs = await loop.run_in_executor(None, get_audio_info, query)
             
+            if not songs:
+                await ctx.send("❌ ไม่พบข้อมูลเพลงจากคำค้นหาหรือลิงก์นี้")
+                return
+
+            # จำกัดเพลงจากเพลย์ลิสต์ไม่เกิน 50 เพลง เพื่อป้องกันคิวล้น
+            if len(songs) > 50:
+                songs = songs[:50]
+                await ctx.send("📢 **เพิ่มเพลย์ลิสต์ลงคิวแล้ว!** (ดึงมาสูงสุด 50 เพลงน้า 🎵)")
+
             queue_list = get_queue(ctx.guild.id)
-            queue_list.append(song)
+            queue_list.extend(songs)
+            
+            # เช็คว่าบอทกำลังติดคิวเล่นเพลง หรือกำลังโหลดเตรียมตัวเล่นอยู่หรือไม่
+            is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
             
             # ถ้าบอทไม่ได้กำลังเล่นอะไรอยู่ ก็สั่งเล่นเลย
-            if not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
+            if not is_active:
                 play_next(ctx)
-                await ctx.send(f'🎶 เริ่มเล่น: **{song["title"]}**')
+                if len(songs) == 1:
+                    await ctx.send(f'⏳ กำลังเตรียมเล่น: **{songs[0]["title"]}**')
+                else:
+                    await ctx.send(f'⏳ เพิ่ม **{len(songs)}** เพลงลงคิว และกำลังเตรียมเล่นเพลงแรก...')
             else:
-                await ctx.send(f'✅ เพิ่มลงในคิว: **{song["title"]}**')
+                if len(songs) == 1:
+                    await ctx.send(f'✅ เพิ่มลงในคิว: **{songs[0]["title"]}**')
+                else:
+                    await ctx.send(f'✅ เพิ่ม **{len(songs)}** เพลงจากเพลย์ลิสต์ลงในคิวแล้ว!')
                 
         except Exception as e:
-            await ctx.send(f"❌ ไม่พบเพลงหรือเกิดข้อผิดพลาด: {str(e)}")
+            await ctx.send(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูล: {str(e)}")
 
 @bot.command(name='stop', help='หยุดเพลงและออกจากห้อง')
 async def stop(ctx):
@@ -165,8 +223,15 @@ async def queue(ctx):
             msg += "📭 ไม่มีเพลงในคิวถัดไป"
             await ctx.send(msg)
     else:
-        q_list = "\n".join([f"{i+1}. {song['title']}" for i, song in enumerate(queue_list)])
+        # จำกัดการแสดงผลแค่ 10 เพลงแรก เพื่อไม่ให้ตัวอักษรเกินโควต้า 2000 ตัวอักษรของ Discord จนบั๊ก
+        show_limit = 10
+        q_list = "\n".join([f"{i+1}. {song['title']}" for i, song in enumerate(queue_list[:show_limit])])
         msg += f"📜 **รายการคิวเพลง:**\n{q_list}"
+        
+        # แจ้งว่ามีอีกกี่เพลงที่ซ่อนอยู่
+        if len(queue_list) > show_limit:
+            msg += f"\n\n*(...และเพลงอื่นๆ อีก {len(queue_list) - show_limit} คิว)*"
+            
         await ctx.send(msg)
 
 # ตัวแปรจัดการให้บอทเริ่มและหยุดอย่างนุ่มนวล
