@@ -232,6 +232,13 @@ class MusicBotGUI(ctk.CTk):
         self.geometry("550x450")
         self.resizable(False, False)
 
+        # เปลี่ยนไอคอนของโปรแกรม (ถ้ามีไฟล์ icon.ico)
+        if os.path.exists("icon.ico"):
+            try:
+                self.iconbitmap("icon.ico")
+            except Exception:
+                pass
+
         # ตัวแปรสถานะ
         self.bot_thread = None
         self.is_running = False
