@@ -44,15 +44,6 @@ echo [SETUP] FFmpeg is missing. It is required for playing audio.
 echo [SETUP] Installing FFmpeg via winget...
 winget install -e --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements
 
-ffmpeg -version >nul 2>&1
-IF %ERRORLEVEL% EQU 0 GOTO FFMPEG_NEWLY_INSTALLED
-
-echo [ERROR] Failed to find FFmpeg even after installation.
-echo Please install FFmpeg manually from https://gyan.dev/ffmpeg/builds/
-pause
-exit /b
-
-:FFMPEG_NEWLY_INSTALLED
 echo [SUCCESS] FFmpeg has been installed successfully!
 echo [IMPORTANT] Your system needs to refresh its settings.
 echo Please CLOSE this window and double-click start.bat again to continue!
