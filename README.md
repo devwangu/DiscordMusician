@@ -1,3 +1,6 @@
+# UI
+<img width="546" height="478" alt="image" src="https://github.com/user-attachments/assets/1d9eda5b-1955-4b7e-9a7d-714ded72b20e" />
+
 # 🎵 Discord Music Bot By VeloxGG
 
 บอทเปิดเพลง Discord ใช้งานง่ายดายผ่าน GUI มาพร้อมระบบติดตั้งและเข้าใช้งานอัตโนมัติ (Auto-Installer) สำหรับผู้ใช้งานบนระบบปฏิบัติการ Windows!
