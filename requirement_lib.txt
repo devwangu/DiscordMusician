@@ -1,4 +1,4 @@
-git+https://github.com/Rapptz/discord.py
+https://github.com/Rapptz/discord.py/archive/master.zip
 PyNaCl
 davey
 yt-dlp
