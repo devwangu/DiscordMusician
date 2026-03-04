@@ -25,7 +25,7 @@
 **สำหรับ Discord:**
 
 - **Bot Token:** คุณจำเป็นต้องสร้างบอทและนำ Token มาจาก [Discord Developer Portal](https://discord.com/developers/applications)
-- **Message Intents:** อย่าลืมเปิดการอนุญาต **"Message Content Intent"** ในแถบ Bot บนเว็บไซต์ของ Discord
+- **Intents:** อย่าลืมเปิดการอนุญาต **"Intent ทั้ง 3 ข้อให้น้องบอท"** ในแถบ Bot บนเว็บไซต์ของ Discord
 
 ---
 
