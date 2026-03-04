@@ -53,6 +53,29 @@ exit /b
 :FFMPEG_INSTALLED
 echo [INFO] FFmpeg is installed.
 
+:: Auto-Update System (Latest Release)
+echo [UPDATE] Checking for the latest stable release from GitHub...
+powershell -Command "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/devwangu/DiscordMusician/releases/latest'; $zipUrl = $release.zipball_url; Invoke-WebRequest -Uri $zipUrl -OutFile 'update.zip'" >nul 2>&1
+IF EXIST update.zip (
+    echo [UPDATE] Extracting new files...
+    powershell -Command "Expand-Archive -Path 'update.zip' -DestinationPath 'update_temp' -Force" >nul 2>&1
+    
+    echo [UPDATE] Installing updates...
+    :: GitHub APIs extract into a folder named RepoName-VersionHash (e.g. devwangu-DiscordMusician-xxxxx)
+    :: We use a wildcard to enter that single dynamically named folder
+    for /d %%D in (update_temp\devwangu-DiscordMusician-*) do (
+        xcopy /Y /E /H /C /I "%%D\*" .\ >nul 2>&1
+    )
+    
+    echo [UPDATE] Cleaning up temporary files...
+    rmdir /S /Q update_temp
+    del /F /Q update.zip
+    echo [SUCCESS] Update complete!
+) ELSE (
+    echo [UPDATE] Failed to download update or no release found. Skipping...
+)
+
+echo.
 :: Create virtual environment if it doesn't exist
 IF EXIST "venv\Scripts\activate.bat" GOTO VENV_EXISTS
 
