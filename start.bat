@@ -100,7 +100,7 @@ call venv\Scripts\activate.bat
 
 :: Install requirements
 IF "%JUST_UPDATED%"=="1" (
-    echo [INFO] New update detected. Updating libraries...(this might take a minute)...
+    echo [INFO] New update detected. Updating libraries... ^(this might take a minute^)...
     python -m pip install --upgrade pip >nul 2>&1
     pip install -U -r requirement_lib.txt
 ) ELSE (
