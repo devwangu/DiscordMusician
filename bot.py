@@ -471,7 +471,7 @@ class MusicBotGUI(ctk.CTk):
             try:
                 # คำสั่งลงเวอร์ชัน Github Master Branch
                 subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "-U", "https://github.com/yt-dlp/yt-dlp/archive/master.zip"],
+                    [sys.executable, "-m", "pip", "install", "-U", "https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz"],
                     check=True, capture_output=True, text=True
                 )
                 self.write_log("✅ อัปเดต YouTube DL สำเร็จแล้ว!")

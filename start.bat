@@ -99,20 +99,26 @@ echo [INFO] Activating virtual environment...
 call venv\Scripts\activate.bat
 
 :: Install requirements
-IF "%JUST_UPDATED%"=="1" (
-    echo [INFO] New update detected. Updating libraries... ^(this might take a minute^)...
+:: Install requirements
+IF "%JUST_UPDATED%"=="1" GOTO DO_UPDATE
+GOTO CHECK_LIBS
+
+:DO_UPDATE
+python -m pip install --upgrade pip >nul 2>&1
+powershell -Command "$c = '|','/','-','\'; $i = 0; $p = Start-Process python -ArgumentList '-m pip install -q -U -r requirement_lib.txt' -NoNewWindow -PassThru; while (-not $p.HasExited) { Write-Host -NoNewline \"`r[INFO] New update detected. Updating libraries... $($c[$i])  (this might take a minute)\"; $i++; if ($i -eq 4) { $i = 0 }; Start-Sleep -Milliseconds 100 }; Write-Host \"`r[INFO] New update detected. Updating libraries... Done!                                  \""
+GOTO RUN_BOT
+
+:CHECK_LIBS
+python -c "import discord, yt_dlp, customtkinter, nacl, davey" >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo [INFO] Missing libraries detected. Installing...
     python -m pip install --upgrade pip >nul 2>&1
-    pip install -U -r requirement_lib.txt
+    pip install -r requirement_lib.txt
 ) ELSE (
-    python -c "import discord, yt_dlp, customtkinter, nacl, davey" >nul 2>&1
-    IF ERRORLEVEL 1 (
-        echo [INFO] Missing libraries detected. Installing...
-        python -m pip install --upgrade pip >nul 2>&1
-        pip install -r requirement_lib.txt
-    ) ELSE (
-        echo [INFO] All libraries are ready!
-    )
+    echo [INFO] All libraries are ready!
 )
+
+:RUN_BOT
 
 :: Start the bot
 echo.
