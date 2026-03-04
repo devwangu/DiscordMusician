@@ -55,7 +55,8 @@ echo [INFO] FFmpeg is installed.
 
 :: Auto-Update System (Latest Release)
 echo [UPDATE] Checking for the latest stable release from GitHub...
-powershell -Command "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/devwangu/DiscordMusician/releases/latest'; $zipUrl = $release.zipball_url; Invoke-WebRequest -Uri $zipUrl -OutFile 'update.zip'" >nul 2>&1
+if exist update.zip del /f /q update.zip >nul 2>&1
+powershell -Command "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/devwangu/DiscordMusician/releases/latest' -ErrorAction SilentlyContinue; if ($null -eq $release) { exit 0 }; $latest = $release.tag_name; $configPath = 'config.json'; $current = 'none'; if (Test-Path $configPath) { $config = Get-Content $configPath -Raw | ConvertFrom-Json; if ($config.version) { $current = $config.version } }; if ($latest -ne $current -and $latest -ne $null) { Invoke-WebRequest -Uri $release.zipball_url -OutFile 'update.zip'; if (-not (Test-Path $configPath)) { $config = @{} } else { $config = Get-Content $configPath -Raw | ConvertFrom-Json }; $config | Add-Member -Type NoteProperty -Name 'version' -Value $latest -Force; $config | ConvertTo-Json | Set-Content $configPath }" >nul 2>&1
 IF EXIST update.zip (
     echo [UPDATE] Extracting new files...
     powershell -Command "Expand-Archive -Path 'update.zip' -DestinationPath 'update_temp' -Force" >nul 2>&1
@@ -99,7 +100,7 @@ call venv\Scripts\activate.bat
 
 :: Install requirements
 IF "%JUST_UPDATED%"=="1" (
-    echo [INFO] New update detected. Updating libraries...
+    echo [INFO] New update detected. Updating libraries...(this might take a minute)...
     python -m pip install --upgrade pip >nul 2>&1
     pip install -U -r requirement_lib.txt
 ) ELSE (
