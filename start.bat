@@ -71,8 +71,10 @@ IF EXIST update.zip (
     rmdir /S /Q update_temp
     del /F /Q update.zip
     echo [SUCCESS] Update complete!
+    set "JUST_UPDATED=1"
 ) ELSE (
     echo [UPDATE] Failed to download update or no release found. Skipping...
+    set "JUST_UPDATED=0"
 )
 
 echo.
@@ -96,9 +98,20 @@ echo [INFO] Activating virtual environment...
 call venv\Scripts\activate.bat
 
 :: Install requirements
-echo [INFO] Installing/Updating required libraries...
-python -m pip install --upgrade pip >nul 2>&1
-pip install -U -r requirement_lib.txt
+IF "%JUST_UPDATED%"=="1" (
+    echo [INFO] New update detected. Updating libraries...
+    python -m pip install --upgrade pip >nul 2>&1
+    pip install -U -r requirement_lib.txt
+) ELSE (
+    python -c "import discord, yt_dlp, customtkinter, nacl, davey" >nul 2>&1
+    IF ERRORLEVEL 1 (
+        echo [INFO] Missing libraries detected. Installing...
+        python -m pip install --upgrade pip >nul 2>&1
+        pip install -r requirement_lib.txt
+    ) ELSE (
+        echo [INFO] All libraries are ready!
+    )
+)
 
 :: Start the bot
 echo.
