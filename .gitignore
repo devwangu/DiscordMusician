@@ -34,3 +34,4 @@ Thumbs.db
 # Project specifics
 *.log
 *.exe
+bot_hosted.py

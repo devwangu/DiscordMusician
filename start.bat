@@ -75,7 +75,7 @@ call venv\Scripts\activate.bat
 :: Install requirements
 echo [INFO] Installing/Updating required libraries...
 python -m pip install --upgrade pip >nul 2>&1
-pip install -r requirement_lib.txt
+pip install -U -r requirement_lib.txt
 
 :: Start the bot
 echo.

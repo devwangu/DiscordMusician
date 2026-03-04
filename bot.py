@@ -51,6 +51,7 @@ ytdl_flat = youtube_dl.YoutubeDL(ytdl_flat_options)
 # ----------------- ตัวแปรระบบคิวเพลง ----------------- #
 music_queues = {}
 current_song = {}
+disconnect_timers = {}
 
 # เปิดใช้งาน Intents (จำเป็นต้องติ๊กในเว็บ Discord Developer สำหรับบางตัว)
 intents = discord.Intents.default()
@@ -62,6 +63,31 @@ bot = commands.Bot(
     intents=intents,
 )
 
+# ----------------- ระบบตัดการเชื่อมต่ออัตโนมัติ ----------------- #
+def start_disconnect_timer(ctx, guild_id):
+    if guild_id in disconnect_timers:
+        disconnect_timers[guild_id].cancel()
+    
+    async def timer():
+        print(f"[Timer] ⏳ เริ่มจับเวลา 5 นาทีสำหรับห้อง {guild_id}...")
+        try:
+            await asyncio.sleep(300)
+            if current_song.get(guild_id) is None and ctx.voice_client and ctx.voice_client.is_connected():
+                print(f"[Disconnect] 🔌 ออกจากห้อง {guild_id} เนื่องจากไม่ได้ใช้งานเกิน 5 นาที")
+                await ctx.voice_client.disconnect()
+                get_queue(guild_id).clear()
+                bot.loop.create_task(ctx.send("👋 ออกจากห้องเสียงอัตโนมัติ เนื่องจากไม่มีการใช้งานเกิน 5 นาที"))
+        except asyncio.CancelledError:
+            pass
+            
+    disconnect_timers[guild_id] = bot.loop.create_task(timer())
+
+def cancel_disconnect_timer(guild_id):
+    if guild_id in disconnect_timers:
+        disconnect_timers[guild_id].cancel()
+        del disconnect_timers[guild_id]
+        print(f"[Timer] ❌ ยกเลิกจับเวลาสำหรับห้อง {guild_id}")
+
 # ----------------ฟังก์ชันต่างๆ ของระบบคิว ------------------- #
 def get_queue(guild_id):
     if guild_id not in music_queues:
@@ -71,17 +97,21 @@ def get_queue(guild_id):
 def play_next(ctx):
     queue_list = get_queue(ctx.guild.id)
     if len(queue_list) > 0:
+        cancel_disconnect_timer(ctx.guild.id)
         song = queue_list.pop(0)
         current_song[ctx.guild.id] = song
-        
+        print(f"[Queue] ⏩ ดึงเพลงถัดไปจากคิว: {song['title']} (เหลือในคิว: {len(queue_list)})")
         # ให้มันไปดึง URL สตรีมช้าๆ ใน Background Task จะได้ไม่ค้างและไม่หมดอายุตอนรอคิว
         bot.loop.create_task(prepare_and_play(ctx, song))
     else:
         current_song[ctx.guild.id] = None
+        print(f"[Queue] 📭 คิวเพลงว่างเปล่าในห้อง {ctx.guild.id}")
+        start_disconnect_timer(ctx, ctx.guild.id)
 
 async def prepare_and_play(ctx, song):
     try:
         loop = bot.loop
+        print(f"[Audio] ⏳ กำลังโหลด Stream URL ของเพลง: {song['title']}")
         # ฟังก์ชันดาวน์โหลด URL จริง (ถ้าเป็นลิงก์ Youtube)
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(song['url'], download=False))
         
@@ -89,14 +119,17 @@ async def prepare_and_play(ctx, song):
             data = data['entries'][0]
             
         stream_url = data['url']
+        print(f"[Audio] ✅ โหลดสำเร็จ! เริ่มจำลองเสียงไปที่ Discord")
         
         # เตรียมเสียง
         audio_source = discord.FFmpegPCMAudio(stream_url, **ffmpeg_options)
         # สั่งเล่นและตั้งให้เมื่อจบไปเรียก play_next ตัวเอง
         ctx.voice_client.play(discord.PCMVolumeTransformer(audio_source, volume=0.5), after=lambda e: play_next(ctx))
         
+        print(f"[Play] ▶️ กำลังเล่น: {song['title']}")
         await ctx.send(f'🎶 กำลังเล่น: **{song["title"]}**')
     except Exception as e:
+        print(f"[Error] ❌ โหลดเสียงล้มเหลว: {e}")
         await ctx.send(f"❌ เกิดข้อผิดพลาดในการดึงเสียงของเพลง **{song['title']}**: {str(e)}")
         # ถ้าเพลงมีปัญหา ข้ามไปเพลงต่อไปเลย
         play_next(ctx)
@@ -137,102 +170,131 @@ async def on_ready():
     print('พร้อมรับคำสั่ง !play, !stop, !skip, !queue')
 
 
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # คืนค่ารอบการทำงานเมื่อบอทถูกเตะออกจากห้อง หรือดิสคอนเนคเอง
+    if member.id == bot.user.id and before.channel and not after.channel:
+        guild_id = member.guild.id
+        print(f"[Voice] 🔌 บอทถูกตัดการเชื่อมต่อจากห้อง {guild_id}")
+        if guild_id in music_queues:
+            music_queues[guild_id].clear()
+        current_song[guild_id] = None
+        cancel_disconnect_timer(guild_id)
+
 @bot.command(name='play', help='เล่นเพลง (YouTube, SoundCloud, Twitch)')
 async def play(ctx, *, query):
     if not ctx.author.voice:
-        await ctx.send("❌ คุณต้องอยู่ในห้องเสียงก่อนนะ!")
-        return
+        return await ctx.send("❌ คุณต้องอยู่ในห้องเสียงก่อนนะ!")
 
     channel = ctx.author.voice.channel
+    permissions = channel.permissions_for(ctx.me)
+    if not permissions.connect or not permissions.speak:
+        print(f"[Permission] ❌ บอทไม่มีสิทธิ์เข้าห้อง {channel.name}")
+        return await ctx.send("❌ บอทไม่มีสิทธิ์ Connect/Speak ในห้องนี้")
     
     # ถ้ายังไม่ได้เชื่อมต่อก็เข้าไป ถ้าอยู่ห้องอื่นก็ย้ายตาม
     if not ctx.voice_client:
+        print(f"[Connect] 🔌 กำลังเข้าห้องเสียง: {channel.name}")
         await channel.connect()
     elif ctx.voice_client.channel != channel:
+        print(f"[Connect] 🔀 ย้ายไปห้องเสียง: {channel.name}")
         await ctx.voice_client.move_to(channel)
 
     async with ctx.typing():
         try:
+            print(f"[Search] 🔍 ค้นหาเพลงจากคำค้น/ลิงก์: {query}")
             # ใช้ event loop เพื่อไม่ให้บอทค้างตอนค้นหาเพลง
             loop = asyncio.get_event_loop()
             songs = await loop.run_in_executor(None, get_audio_info, query)
             
             if not songs:
+                print(f"[Search] ❌ ไม่พบเพลง!")
                 await ctx.send("❌ ไม่พบข้อมูลเพลงจากคำค้นหาหรือลิงก์นี้")
                 return
 
             # จำกัดเพลงจากเพลย์ลิสต์ไม่เกิน 50 เพลง เพื่อป้องกันคิวล้น
             if len(songs) > 50:
+                print(f"[Search] ⚠️ เพลย์ลิสต์ยาวเกินไป โหลดแค่ 50 เพลง")
                 songs = songs[:50]
                 await ctx.send("📢 **เพิ่มเพลย์ลิสต์ลงคิวแล้ว!** (ดึงมาสูงสุด 50 เพลงน้า 🎵)")
 
             queue_list = get_queue(ctx.guild.id)
             queue_list.extend(songs)
+            print(f"[Queue] 📥 เพิ่ม {len(songs)} เพลงเข้าคิว (รวมเป็น {len(queue_list)} เพลง)")
             
             # เช็คว่าบอทกำลังติดคิวเล่นเพลง หรือกำลังโหลดเตรียมตัวเล่นอยู่หรือไม่
             is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
             
             # ถ้าบอทไม่ได้กำลังเล่นอะไรอยู่ ก็สั่งเล่นเลย
             if not is_active:
+                print(f"[Play] ▶️ คิวว่างเปล่า ส่งเพลงเข้าเครื่องเล่นทันที")
                 play_next(ctx)
                 if len(songs) == 1:
                     await ctx.send(f'⏳ กำลังเตรียมเล่น: **{songs[0]["title"]}**')
                 else:
                     await ctx.send(f'⏳ เพิ่ม **{len(songs)}** เพลงลงคิว และกำลังเตรียมเล่นเพลงแรก...')
             else:
+                print(f"[Queue] ⏳ บอทกำลังยุ่ง ยืนเข้าคิวตามปกติ")
                 if len(songs) == 1:
                     await ctx.send(f'✅ เพิ่มลงในคิว: **{songs[0]["title"]}**')
                 else:
                     await ctx.send(f'✅ เพิ่ม **{len(songs)}** เพลงจากเพลย์ลิสต์ลงในคิวแล้ว!')
                 
         except Exception as e:
+            print(f"[Error] ❌ เกิดข้อผิดพลาดในคำสั่ง play: {e}")
             await ctx.send(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูล: {str(e)}")
 
 @bot.command(name='stop', help='หยุดเพลงและออกจากห้อง')
 async def stop(ctx):
+    print(f"[Command] 🛑 ผู้ใช้สั่ง Stop ในห้อง {ctx.guild.id}")
     if ctx.voice_client:
         queue_list = get_queue(ctx.guild.id)
         queue_list.clear()
         current_song[ctx.guild.id] = None
+        cancel_disconnect_timer(ctx.guild.id)
         await ctx.voice_client.disconnect()
+        print(f"[Disconnect] 🔌 บอทถูกบังคับออกจากห้อง {ctx.guild.id}")
         await ctx.send("👋 หยุดเพลงและออกจากห้องแล้วนะ")
     else:
         await ctx.send("❌ บอทยังไม่ได้อยู่ในห้องเสียงเลย")
 
 @bot.command(name='skip', help='ข้ามเพลง')
 async def skip(ctx):
+    print(f"[Command] ⏭️ ผู้ใช้สั่ง Skip ในห้อง {ctx.guild.id}")
     if ctx.voice_client and ctx.voice_client.is_playing():
         ctx.voice_client.stop() # การ stop จะไปกระตุ้น callback "after" ให้ข้ามไปเล่นคิวถัดไปอัตโนมัติ
+        print(f"[Skip] ข้ามเพลงและเตรียมดึงเพลงถัดไปจากคิว (ถ้ามี)...")
         await ctx.send("⏭️ ข้ามเพลงแล้ว!")
     else:
         await ctx.send("❌ ตอนนี้ไม่ได้เล่นเพลงอะไรอยู่นะ")
 
 @bot.command(name='queue', help='ดูรายชื่อเพลงในคิว')
 async def queue(ctx):
+    print(f"[Command] 📜 ผู้ใช้ขอดู Queue ในห้อง {ctx.guild.id}")
     queue_list = get_queue(ctx.guild.id)
     current = current_song.get(ctx.guild.id)
     
+    if not queue_list and not current:
+        return await ctx.send("📭 คิวเพลงว่างเปล่า")
+        
     msg = ""
     if current:
         msg += f"🔊 **กำลังเล่น:** {current['title']}\n\n"
         
-    if len(queue_list) == 0:
-        if not current:
-            await ctx.send("📭 คิวเพลงว่างเปล่า")
-        else:
-            msg += "📭 ไม่มีเพลงในคิวถัดไป"
-            await ctx.send(msg)
+    if not queue_list:
+        msg += "📭 ไม่มีเพลงในคิวถัดไป"
     else:
         # จำกัดการแสดงผลแค่ 10 เพลงแรก เพื่อไม่ให้ตัวอักษรเกินโควต้า 2000 ตัวอักษรของ Discord จนบั๊ก
         show_limit = 10
         q_list = "\n".join([f"{i+1}. {song['title']}" for i, song in enumerate(queue_list[:show_limit])])
-        msg += f"📜 **รายการคิวเพลง:**\n{q_list}"
+        msg += f"📜 **Queue:**\n{q_list}"
         
         # แจ้งว่ามีอีกกี่เพลงที่ซ่อนอยู่
         if len(queue_list) > show_limit:
-            msg += f"\n\n*(...และเพลงอื่นๆ อีก {len(queue_list) - show_limit} คิว)*"
+            msg += f"\n\n*(...and {len(queue_list) - show_limit} more)*"
             
-        await ctx.send(msg)
+    print(f"[Queue] แสดงคิว {len(queue_list)} เพลงให้ผู้ใช้")
+    await ctx.send(msg)
 
 # ตัวแปรจัดการให้บอทเริ่มและหยุดอย่างนุ่มนวล
 _stop_event = None
@@ -242,39 +304,32 @@ def run_bot(token):
     global _stop_event
     _stop_event = threading.Event() # สร้างธงไว้รับคำสั่งปิดจาก GUI
     
-    # รันโค้ดบอททั้งหมด ในกรณีที่ธงสั่งหยุดจะลุยเช็คหยุดบอทได้
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    async def runner():
-        try:
-            await bot.start(token)
-        except Exception as e:
-            if not isinstance(e, discord.errors.LoginFailure):
-                print(f"❌ เกิดข้อผิดพลาดในการรันบอท: {e}")
-            else:
-                print("❌ Token ไม่ถูกต้อง! กรุณาตรวจสอบ Token อีกครั้ง")
-    
-    # รันบอทจริงๆ
-    task = loop.create_task(runner())
-    
-    # ลูปที่เช็คว่าธงที่รอรับคำสั่งให้หยุด (stop_event) โดนดึงไหม (ถูก set จาก GUI)
-    while not _stop_event.is_set():
-        try:
-            loop.run_until_complete(asyncio.sleep(0.5))
-        except SystemExit:
-            break
-            
-    # พอโดนเซ็ตปุ๊บ (กด Stop) เริ่มกระบวนการปิดบอทอย่างราบรื่น
-    print("กำลังปิดการเชื่อมต่อ Discord และเคลียร์บอท...")
-    # เตะบอทออกจากห้องเสียงทั้งหมดที่อยู่ในตอนนั้นถ้ามี
-    try:
-        loop.run_until_complete(bot.close())
-    except:
-        pass
-    finally:
-        loop.close()
+    async def wait_for_stop():
+        # รอจนกว่าสัญญาณหยุดจะถูกดึง
+        while not _stop_event.is_set():
+            await asyncio.sleep(0.5)
+        # พอโดนเซ็ตปุ๊บ (กด Stop) เริ่มกระบวนการปิดบอท
+        print("กำลังปิดการเชื่อมต่อ Discord และเคลียร์บอท...")
+        await bot.close()
         print("ปิดบอทสมบูรณ์แล้ว!")
+
+    async def main():
+        async with bot:
+            # ลุยเช็คธงหยุดควบคู่ไปกับตัวบอทหลัก
+            bot.loop.create_task(wait_for_stop())
+            try:
+                await bot.start(token)
+            except Exception as e:
+                if isinstance(e, discord.errors.LoginFailure):
+                    print("❌ Token ไม่ถูกต้อง! กรุณาตรวจสอบ Token อีกครั้ง")
+                else:
+                    print(f"❌ เกิดข้อผิดพลาดในการรันบอท: {e}")
+
+    # ใช้ asyncio.run เพื่อจัดการ Event Loop แบบสมบูรณ์ ป้องกันหลุดการเชื่อมต่อ (Heartbeat)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
 
 def request_stop_bot():
     if _stop_event:
