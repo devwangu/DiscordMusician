@@ -54,9 +54,8 @@ exit /b
 echo [INFO] FFmpeg is installed.
 
 :: Auto-Update System (Latest Release)
-echo [UPDATE] Checking for the latest stable release from GitHub...
 if exist update.zip del /f /q update.zip >nul 2>&1
-powershell -Command "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/devwangu/DiscordMusician/releases/latest' -ErrorAction SilentlyContinue; if ($null -eq $release) { exit 0 }; $latest = $release.tag_name; $configPath = 'config.json'; $current = 'none'; if (Test-Path $configPath) { $config = Get-Content $configPath -Raw | ConvertFrom-Json; if ($config.version) { $current = $config.version } }; if ($latest -ne $current -and $latest -ne $null) { Invoke-WebRequest -Uri $release.zipball_url -OutFile 'update.zip'; if (-not (Test-Path $configPath)) { $config = @{} } else { $config = Get-Content $configPath -Raw | ConvertFrom-Json }; $config | Add-Member -Type NoteProperty -Name 'version' -Value $latest -Force; $config | ConvertTo-Json | Set-Content $configPath }" >nul 2>&1
+powershell -Command "$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/devwangu/DiscordMusician/releases/latest' -ErrorAction SilentlyContinue; if ($null -eq $release) { Write-Host '[UPDATE] Could not check for updates.'; exit 0 }; $latest = $release.tag_name; $configPath = 'config.json'; $current = 'none'; if (Test-Path $configPath) { $config = Get-Content $configPath -Raw | ConvertFrom-Json; if ($config.version) { $current = $config.version } }; Write-Host \"[UPDATE] Current Version: $current | Latest Version: $latest\"; if ($latest -ne $current -and $latest -ne $null) { Write-Host '[UPDATE] Downloading new update...'; Invoke-WebRequest -Uri $release.zipball_url -OutFile 'update.zip'; if (-not (Test-Path $configPath)) { $config = @{} } else { $config = Get-Content $configPath -Raw | ConvertFrom-Json }; $config | Add-Member -Type NoteProperty -Name 'version' -Value $latest -Force; $config | ConvertTo-Json | Set-Content $configPath } else { Write-Host '[UPDATE] You are already running the latest version! Skipping update.' }"
 IF EXIST update.zip (
     echo [UPDATE] Extracting new files...
     powershell -Command "Expand-Archive -Path 'update.zip' -DestinationPath 'update_temp' -Force" >nul 2>&1
@@ -99,26 +98,34 @@ echo [INFO] Activating virtual environment...
 call venv\Scripts\activate.bat
 
 :: Install requirements
-IF "%JUST_UPDATED%"=="1" (
-    echo [INFO] New update detected. Updating libraries... ^(this might take a minute^)...
+IF "%JUST_UPDATED%"=="1" GOTO DO_UPDATE
+GOTO CHECK_LIBS
+
+:DO_UPDATE
+python -m pip install --upgrade pip >nul 2>&1
+powershell -Command "$c = '|','/','-','\'; $i = 0; $p = Start-Process python -ArgumentList '-m pip install -q -U -r requirement_lib.txt' -NoNewWindow -PassThru; while (-not $p.HasExited) { Write-Host -NoNewline \"`r[INFO] New update detected. Updating libraries... $($c[$i])  (this might take a minute)\"; $i++; if ($i -eq 4) { $i = 0 }; Start-Sleep -Milliseconds 100 }; Write-Host \"`r[INFO] New update detected. Updating libraries... Done!                                  \""
+GOTO RUN_BOT
+
+:CHECK_LIBS
+python -c "import discord, yt_dlp, customtkinter, nacl, davey" >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo [INFO] Missing libraries detected. Installing...
     python -m pip install --upgrade pip >nul 2>&1
-    pip install -U -r requirement_lib.txt
+    pip install -r requirement_lib.txt
 ) ELSE (
-    python -c "import discord, yt_dlp, customtkinter, nacl, davey" >nul 2>&1
-    IF ERRORLEVEL 1 (
-        echo [INFO] Missing libraries detected. Installing...
-        python -m pip install --upgrade pip >nul 2>&1
-        pip install -r requirement_lib.txt
-    ) ELSE (
-        echo [INFO] All libraries are ready!
-    )
+    echo [INFO] All libraries are ready!
 )
+
+:RUN_BOT
 
 :: Start the bot
 echo.
 echo ========================================
 echo           Starting the Bot...           
 echo ========================================
+
+:: Give users 1.5 seconds to read the messages above before closing the window
+powershell -Command "Start-Sleep -Seconds 1.5"
 
 :: Use start and pythonw to run the bot without a console window, then close the terminal.
 start "" pythonw bot.py
