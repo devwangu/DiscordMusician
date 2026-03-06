@@ -35,3 +35,8 @@ Thumbs.db
 *.log
 *.exe
 bot_hosted.py
+
+# Test
+test_log.txt
+test_pythonw.py
+

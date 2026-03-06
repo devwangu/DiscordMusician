@@ -128,5 +128,6 @@ echo ========================================
 powershell -Command "Start-Sleep -Seconds 1.5"
 
 :: Use start and pythonw to run the bot without a console window, then close the terminal.
-start "" pythonw bot.py
+:: Explicitly use the venv's pythonw.exe to prevent Windows from loading the system Python via AppPaths registry.
+start "" ".\venv\Scripts\pythonw.exe" bot.py
 exit
