@@ -433,9 +433,20 @@ class MusicBotGUI(ctk.CTk):
 
     def save_token(self, token):
         token_file = "config.json"
+        data = {}
+        # ดึงของเก่ามาก่อน จะได้ไม่ลบตัวแปรอื่นๆ เช่น version จาก start.bat
+        if os.path.exists(token_file):
+            try:
+                with open(token_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+                
+        data["token"] = token
+        
         try:
             with open(token_file, "w", encoding="utf-8") as f:
-                json.dump({"token": token}, f)
+                json.dump(data, f, indent=4)
         except Exception as e:
             pass
 
