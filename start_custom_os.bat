@@ -21,19 +21,26 @@ IF %ERRORLEVEL% EQU 0 (
 
 echo [SETUP] It looks like Python is not installed yet. Don't worry!
 echo [SETUP] Initializing automatic Python installation using winget...
-winget install -e --id Python.Python.3.11 --accept-package-agreements --accept-source-agreements
+winget install -e --id Python.Python.3.11 --accept-package-agreements --accept-source-agreements >nul 2>&1
 
-:: After winget installation, re-check for Python
-python --version >nul 2>&1
-IF %ERRORLEVEL% EQU 0 (
-    set "PYTHON_CMD=python"
-    GOTO PYTHON_INSTALLED
+:: Check if winget succeeded (or even exists)
+IF %ERRORLEVEL% NEQ 0 (
+    echo [WARNING] Winget is not available or failed. Using alternate download method...
+    powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Write-Host 'Downloading Python installer (this may take a minute)...'; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.8/python-3.11.8-amd64.exe' -OutFile 'python_installer.exe'"
+    if exist python_installer.exe (
+        echo [SETUP] Running Python installer silently...
+        start /wait python_installer.exe /quiet InstallAllUsers=0 PrependPath=1 Include_test=0
+        del python_installer.exe
+    ) ELSE (
+        echo [ERROR] Failed to download Python.
+    )
 )
 
+:: Check again after installation using 'py' fallback
 py --version >nul 2>&1
 IF %ERRORLEVEL% EQU 0 (
     set "PYTHON_CMD=py"
-    GOTO PYTHON_INSTALLED
+    GOTO PYTHON_NEWLY_INSTALLED
 )
 
 echo [ERROR] Failed to find Python even after installation.
@@ -41,6 +48,10 @@ echo Please install Python manually from https://www.python.org/downloads/
 echo **IMPORTANT**: Make sure to check the box "Add Python to PATH" during installation.
 pause
 exit /b
+
+:PYTHON_NEWLY_INSTALLED
+echo [SUCCESS] Python has been installed successfully!
+echo [INFO] Continuing setup using Windows Python Launcher...
 
 :PYTHON_INSTALLED
 echo [INFO] Python is installed and ready.
@@ -51,7 +62,24 @@ IF %ERRORLEVEL% EQU 0 GOTO FFMPEG_INSTALLED
 
 echo [SETUP] FFmpeg is missing. It is required for playing audio.
 echo [SETUP] Installing FFmpeg via winget...
-winget install -e --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements
+winget install -e --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements >nul 2>&1
+
+IF %ERRORLEVEL% NEQ 0 (
+    echo [WARNING] Winget is not available or failed. Using alternate download method for FFmpeg...
+    powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Write-Host 'Downloading FFmpeg...'; Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile 'ffmpeg.zip'"
+    if exist ffmpeg.zip (
+        echo [SETUP] Extracting FFmpeg...
+        powershell -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath 'ffmpeg_temp' -Force"
+        for /d %%D in (ffmpeg_temp\ffmpeg-*) do (
+            xcopy /Y /F "%%D\bin\ffmpeg.exe" .\ >nul 2>&1
+            xcopy /Y /F "%%D\bin\ffprobe.exe" .\ >nul 2>&1
+        )
+        rmdir /S /Q ffmpeg_temp
+        del /F /Q ffmpeg.zip
+    ) ELSE (
+        echo [ERROR] Failed to download FFmpeg.
+    )
+)
 
 echo [SUCCESS] FFmpeg has been installed successfully!
 echo [IMPORTANT] Your system needs to refresh its settings.
