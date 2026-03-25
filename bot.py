@@ -228,6 +228,19 @@ class MusicCog(commands.Cog):
 
         async with ctx.typing():
             try:
+                # โยนลิงก์ Spotify ออกไปให้โมดูลเสริมจัดการ เพื่อให้ไฟล์เมนสะอาด กินแรมน้อย
+                if "spotify.com/track" in query:
+                    import spotify
+                    print(f"[Spotify] 🟢 ตรวจพบลิงก์ Spotify กำลังเรียกใช้งานโมดูลสกัดชื่อเพลง...")
+                    spotify_query = spotify.get_spotify_track_info(query)
+                    
+                    if spotify_query:
+                        print(f"[Spotify] ✅ สกัดสำเร็จ! จะใช้คำค้นหานี้ลุยกับ YouTube ต่อ: {spotify_query}")
+                        query = f"ytsearch:{spotify_query}"
+                    else:
+                        print(f"[Spotify] ❌ แงะไม่สำเร็จ หรือคุณอาจจะใส่ลิงก์ผิดประเภทมา")
+                        return await ctx.send("❌ โหลดข้อมูลจาก Spotify ไม่ได้ครับ (ตอนนี้รองรับแต่ลิงก์แชร์เพลงเดี่ยวๆ น้า)")
+
                 print(f"[Search] 🔍 ค้นหาเพลงจากคำค้น/ลิงก์: {query}")
                 # ใช้ event loop เพื่อไม่ให้บอทค้างตอนค้นหาเพลง
                 loop = asyncio.get_event_loop()
