@@ -240,7 +240,7 @@ class MusicCog(commands.Cog):
                         
                     if isinstance(spotify_results, list): # เป็นเพลย์ลิสต์
                         print(f"[Spotify] 📋 ตรวจพบเพลย์ลิสต์/อัลบั้ม จำนวน {len(spotify_results)} เพลง")
-                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 50)} เพลง)...**\nระบบสายมืดกำลังเจาะทีละเพลง อาจกินเวลา 2-3 นาทีนะครับ")
+                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 50)} เพลง)...**\nอาจกินเวลา 2-3 นาทีนะครับ")
                         
                         queue_list = get_queue(ctx.guild.id)
                         loop = asyncio.get_event_loop()
@@ -256,7 +256,7 @@ class MusicCog(commands.Cog):
                         is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
                         if not is_active and first_song:
                             self.play_next(ctx)
-                            await ctx.send(f'▶️ สกัดและเริ่มเล่นเพลงแรก: **{first_song[0]["title"]}**\n*(กำลังดึงเพลงที่เหลือลงคิวอยู่เบื้องหลังเงียบๆ...)*')
+                            await ctx.send(f'▶️ เริ่มเล่นเพลงแรก: **{first_song[0]["title"]}**\n*(กำลังดึงเพลงที่เหลือลงคิวอยู่เบื้องหลัง...)*')
                             
                         # ดึงเพลงที่เหลือลงคิวแบบ Background (ไม่ให้คำสั่ง !play โดนล็อก)
                         async def fetch_remaining_tracks():
