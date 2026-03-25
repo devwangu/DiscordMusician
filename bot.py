@@ -228,18 +228,56 @@ class MusicCog(commands.Cog):
 
         async with ctx.typing():
             try:
-                # โยนลิงก์ Spotify ออกไปให้โมดูลเสริมจัดการ เพื่อให้ไฟล์เมนสะอาด กินแรมน้อย
-                if "spotify.com/track" in query:
+                # โยนลิงก์ Spotify ออกไปให้โมดูลเสริมจัดการ (รองรับทั้ง Track และ เพลย์ลิสต์)
+                if "spotify.com" in query:
                     import spotify
                     print(f"[Spotify] 🟢 ตรวจพบลิงก์ Spotify กำลังเรียกใช้งานโมดูลสกัดชื่อเพลง...")
-                    spotify_query = spotify.get_spotify_track_info(query)
+                    spotify_results = spotify.get_spotify_track_info(query)
                     
-                    if spotify_query:
-                        print(f"[Spotify] ✅ สกัดสำเร็จ! จะใช้คำค้นหานี้ลุยกับ YouTube ต่อ: {spotify_query}")
-                        query = f"ytsearch:{spotify_query}"
-                    else:
-                        print(f"[Spotify] ❌ แงะไม่สำเร็จ หรือคุณอาจจะใส่ลิงก์ผิดประเภทมา")
-                        return await ctx.send("❌ โหลดข้อมูลจาก Spotify ไม่ได้ครับ (ตอนนี้รองรับแต่ลิงก์แชร์เพลงเดี่ยวๆ น้า)")
+                    if not spotify_results:
+                        print(f"[Spotify] ❌ แงะไม่สำเร็จ")
+                        return await ctx.send("❌ โหลดข้อมูลจาก Spotify ไม่สำเร็จครับ (ลิงก์อาจถูกตั้งเป็นส่วนตัว หรือระบบสกัดบล็อก)")
+                        
+                    if isinstance(spotify_results, list): # เป็นเพลย์ลิสต์
+                        print(f"[Spotify] 📋 ตรวจพบเพลย์ลิสต์/อัลบั้ม จำนวน {len(spotify_results)} เพลง")
+                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 50)} เพลง)...**\nระบบสายมืดกำลังเจาะทีละเพลง อาจกินเวลา 2-3 นาทีนะครับ")
+                        
+                        queue_list = get_queue(ctx.guild.id)
+                        loop = asyncio.get_event_loop()
+                        
+                        # เล่นเพลงแรกทันทีเพื่อไม่ให้บอทค้าง
+                        first_query = f"ytsearch:{spotify_results[0]}"
+                        first_song = await loop.run_in_executor(None, get_audio_info, first_query)
+                        
+                        if first_song:
+                            queue_list.extend(first_song)
+                            
+                        # เช็คสถานะเพื่อเริ่มเล่นเพลงแรกทันที
+                        is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
+                        if not is_active and first_song:
+                            self.play_next(ctx)
+                            await ctx.send(f'▶️ สกัดและเริ่มเล่นเพลงแรก: **{first_song[0]["title"]}**\n*(กำลังดึงเพลงที่เหลือลงคิวอยู่เบื้องหลังเงียบๆ...)*')
+                            
+                        # ดึงเพลงที่เหลือลงคิวแบบ Background (ไม่ให้คำสั่ง !play โดนล็อก)
+                        async def fetch_remaining_tracks():
+                            count = 1
+                            for seq_query in spotify_results[1:50]: # เอาแค่ 50 เพลง
+                                s_query = f"ytsearch:{seq_query}"
+                                try:
+                                    s_info = await loop.run_in_executor(None, get_audio_info, s_query)
+                                    if s_info:
+                                        queue_list.extend(s_info)
+                                        count += 1
+                                except: pass
+                            await ctx.send(f"✅ โหลดเพลย์ลิสต์ Spotify ลงคิวเสร็จสมบูรณ์ ({count} เพลง)!")
+                            
+                        # สั่งรัน Background Task แล้วจบคำสั่ง play ของ Discord ทันที
+                        self.bot.loop.create_task(fetch_remaining_tracks())
+                        return
+                        
+                    else: # เป็นเพลงเดียว (Track)
+                        print(f"[Spotify] ✅ สกัดสำเร็จ: {spotify_results}")
+                        query = f"ytsearch:{spotify_results}"
 
                 print(f"[Search] 🔍 ค้นหาเพลงจากคำค้น/ลิงก์: {query}")
                 # ใช้ event loop เพื่อไม่ให้บอทค้างตอนค้นหาเพลง

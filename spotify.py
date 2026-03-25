@@ -1,13 +1,19 @@
 import urllib.request
 import re
+import json
 
 def get_spotify_track_info(url):
     """
-    รับลิงก์ Spotify (Track) แล้วเจาะหน้าเว็บดึงชื่อเพลงและศิลปินออกมา 
-    คืนค่าเป็นสตริงคำค้นหา เช่น 'Song Title Artist Name' เพื่อให้ YouTube ค้นหาต่อ
+    รับลิงก์ Spotify แล้วเจาะหน้าเว็บดึงชื่อเพลง
+    คืนค่าเป็น สตริง (ถ้าเป็นเพลงเดียว) หรือ ลิสต์ (ถ้าเป็นเพลย์ลิสต์/อัลบั้ม)
     """
     try:
-        # ใส่ Header ปลอมตัวเป็นคอมพิวเตอร์คนจริงๆ (Chrome) ไม่ใช่บอท เพื่อกัน Spotify บล็อก
+        # เคล็ดลับวิชา แอบใช้หน้าต่าง Embed ของ Spotify เพื่อหลบการบล็อกรัน JavaScript
+        if "spotify.com" in url and "/embed/" not in url:
+            url = url.replace("spotify.com/", "spotify.com/embed/")
+            # ตัด query string ขยะทิ้ง (เช่น ?si=...)
+            url = url.split('?')[0]
+            
         req = urllib.request.Request(
             url, 
             data=None, 
@@ -18,22 +24,37 @@ def get_spotify_track_info(url):
         with urllib.request.urlopen(req) as response:
             html = response.read().decode('utf-8')
             
-            # พยายามดึงจาก og:title และ og:description ที่ฝังอยู่ใน โค้ด HTML
+            # เจาะรหัสลับ JSON ที่ฝังอยู่ในหน้า Embed นำมาแปลงร่าง
+            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+            if match:
+                data = json.loads(match.group(1))
+                entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+                
+                # ตรวจสอบว่าเป็นเพลงเดียว (Track) หรือไม่
+                if entity.get('type') == 'track':
+                    name = entity.get('title', '')
+                    artist = entity.get('subtitle', '')
+                    return f"{name} {artist}"
+                
+                # ตรวจสอบว่าเป็น Playlist หรือ Album หรือไม่
+                elif entity.get('type') in ['playlist', 'album']:
+                    track_list = entity.get('trackList', [])
+                    results = []
+                    # ดึงเพลงออกมา (จำกัดสูงสุด 50 เพลงตามหน้า Embed ทั่วไป)
+                    for t in track_list:
+                        name = t.get('title', '')
+                        artist = t.get('subtitle', '')
+                        results.append(f"{name} {artist}")
+                    return results
+
+            # ถ้าสกัด JSON ไม่ติดจริงๆ ให้ใช้สคริปต์สำรองดึงจาก Meta Tag (รองรับแต่ Track)
             og_title = re.search(r'<meta property="og:title" content="(.*?)"', html)
             og_desc = re.search(r'<meta property="og:description" content="(.*?)"', html)
             
             if og_title and og_desc:
                 song_name = og_title.group(1)
-                # คำอธิบายของ Spotify จะเป็นแบบนี้: "Song · Artist Name · 2024"
                 artist_name = og_desc.group(1).replace('Song · ', '').split(' · ')[0]
                 return f"{song_name} {artist_name}"
-            
-            # ถ้าหาจาก OG Meta ไม่เจอ ให้ลองดึงจากจุดอื่น (Title ของ Tab Browser)
-            title_match = re.search(r'<title>(.*?)</title>', html)
-            if title_match:
-                clean_title = title_match.group(1).split(' - song and lyrics by ')[0]
-                clean_title = clean_title.split(' | Spotify')[0]
-                return clean_title
                 
     except Exception as e:
         print(f"[Spotify Module] Error scraping link {url}: {e}")
