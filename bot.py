@@ -240,44 +240,54 @@ class MusicCog(commands.Cog):
                         
                     if isinstance(spotify_results, list): # เป็นเพลย์ลิสต์
                         print(f"[Spotify] 📋 ตรวจพบเพลย์ลิสต์/อัลบั้ม จำนวน {len(spotify_results)} เพลง")
-                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 50)} เพลง)...**\nอาจกินเวลา 2-3 นาทีนะครับ")
+                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 50)} เพลง)...**\nอาจกินเวลาสักครู่นะครับ")
                         
+                        spotify_targets = spotify_results[:50]
+                        # โชว์รายชื่อเพลงก่อนเข้า YouTube (ซ่อนออกจากแชท แต่ปริ้นท์ใน CMD แทน)
+                        print(f"[Debug] รายชื่อเพลงที่ดึงมาจาก Spotify ได้ครบถ้วน ({len(spotify_targets)} เพลง):")
+                        for i, trk in enumerate(spotify_targets, 1):
+                            print(f"{i}. {trk}")
+                            
                         queue_list = get_queue(ctx.guild.id)
                         loop = asyncio.get_event_loop()
                         
-                        # เล่นเพลงแรกทันทีเพื่อไม่ให้บอทค้าง
-                        first_query = f"ytsearch:{spotify_results[0]}"
-                        first_song = await loop.run_in_executor(None, get_audio_info, first_query)
-                        
-                        if first_song:
-                            queue_list.extend(first_song)
-                            
-                        # เช็คสถานะเพื่อเริ่มเล่นเพลงแรกทันที
-                        is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
-                        if not is_active and first_song:
-                            self.play_next(ctx)
-                            await ctx.send(f'▶️ เริ่มเล่นเพลงแรก: **{first_song[0]["title"]}**\n*(กำลังดึงเพลงที่เหลือลงคิวอยู่เบื้องหลัง...)*')
-                            
-                        # ดึงเพลงที่เหลือลงคิวแบบ Background (ไม่ให้คำสั่ง !play โดนล็อก)
-                        async def fetch_remaining_tracks():
-                            count = 1
-                            for seq_query in spotify_results[1:50]: # เอาแค่ 50 เพลง
-                                s_query = f"ytsearch:{seq_query}"
+                        async def fetch_playlist_tracks_silent():
+                            count = 0
+                            for index, target_name in enumerate(spotify_targets, 1):
+                                print(f"[Debug] 🔍 กำลังค้นหาเพลงที่ {index}/{len(spotify_targets)}: `{target_name}` ...")
+                                
+                                s_query = target_name
                                 try:
                                     s_info = await loop.run_in_executor(None, get_audio_info, s_query)
                                     if s_info:
+                                        yt_title = s_info[0]['title']
                                         queue_list.extend(s_info)
+                                        queue_pos = len(queue_list)
                                         count += 1
-                                except: pass
-                            await ctx.send(f"✅ โหลดเพลย์ลิสต์ Spotify ลงคิวเสร็จสมบูรณ์ ({count} เพลง)!")
+                                        
+                                        print(f"[Debug] ✅ เจอเพลง `{target_name}` แล้ว! -> `{yt_title}` (คิวชั่วคราวที่ {queue_pos})")
+                                        
+                                        # ถ้าบอทว่างอยู่ และนี่คือเพลงแรก ให้สั่งเล่นเลย
+                                        is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
+                                        if not is_active and len(queue_list) == 1:
+                                            self.play_next(ctx)
+                                            await ctx.send(f"▶️ เริ่มเล่นเพลงแรก: **{yt_title}**\n*(กำลังดึงคิวที่เหลือลงเบื้องหลังเงียบๆ...)*")
+                                            print(f"[Debug] ▶️ บอทว่างอยู่พอดี เริ่มเล่นเพลงที่ 1 ({yt_title}) อัตโนมัติ!")
+                                    else:
+                                        print(f"[Debug] ❌ หาเพลง `{target_name}` ใน YouTube ไม่เจอ!")
+                                except Exception as e:
+                                    print(f"[Debug] ❌ เกิดข้อผิดพลาดตอนค้นหา `{target_name}`: {e}")
                             
-                        # สั่งรัน Background Task แล้วจบคำสั่ง play ของ Discord ทันที
-                        self.bot.loop.create_task(fetch_remaining_tracks())
+                            print(f"[Debug] 🎉 โหลดดึงเพลงจาก YouTube ใส่คิวเสร็จสมบูรณ์! จำนวนทั้งหมด {count} เพลง")
+                            await ctx.send(f"✅ โหลดเพลย์ลิสต์สมบูรณ์แล้ว ({count} เพลง)!")
+                            
+                        # เอาขึ้น Background Task ให้มันค่อยๆ ดึงและรายงานผลรัวๆในหน้า CMD
+                        self.bot.loop.create_task(fetch_playlist_tracks_silent())
                         return
                         
                     else: # เป็นเพลงเดียว (Track)
                         print(f"[Spotify] ✅ สกัดสำเร็จ: {spotify_results}")
-                        query = f"ytsearch:{spotify_results}"
+                        query = spotify_results
 
                 print(f"[Search] 🔍 ค้นหาเพลงจากคำค้น/ลิงก์: {query}")
                 # ใช้ event loop เพื่อไม่ให้บอทค้างตอนค้นหาเพลง
