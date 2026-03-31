@@ -129,6 +129,22 @@ class MusicCog(commands.Cog):
         if len(queue_list) > 0:
             self.cancel_disconnect_timer(ctx.guild.id)
             song = queue_list.pop(0)
+            
+            # ตรวจสอบว่าเป็นตั๋วเปล่า (Dummy) หรือไม่
+            if song.get('is_dummy'):
+                print(f"[Queue] ⏳ รอเพลงลำดับถัดไปโหลดก่อน... ({song['title']})")
+                # คืนค่ากลับไปอยู่หน้าสุดเหมือนเดิม
+                queue_list.insert(0, song)
+                # ตั้งเวลาเรียกตัวเองใหม่ในอีก 1.5 วินาที
+                self.bot.loop.call_later(1.5, self.play_next, ctx)
+                return
+                
+            # ข้ามเพลงที่ค้นหาไม่เจอจริงๆ
+            if song.get('skip_error'):
+                print(f"[Queue] ⏩ ข้ามเพลง (ซ่อนหรือหาไม่เจอ): {song['title']}")
+                self.play_next(ctx)
+                return
+                
             current_song[ctx.guild.id] = song
             print(f"[Queue] ⏩ ดึงเพลงถัดไปจากคิว: {song['title']} (เหลือในคิว: {len(queue_list)})")
             # ให้มันไปดึง URL สตรีมช้าๆ ใน Background Task จะได้ไม่ค้างและไม่หมดอายุตอนรอคิว
@@ -233,8 +249,13 @@ class MusicCog(commands.Cog):
                     import re
                     match = re.search(r'[?&]list=([a-zA-Z0-9_-]+)', query)
                     if match:
-                        query = f"https://www.youtube.com/playlist?list={match.group(1)}"
-                        print(f"[YouTube] 📋 แปลงลิงก์ผสมเป็นเพลย์ลิสต์แท้: {query}")
+                        playlist_id = match.group(1)
+                        # ข้ามการแปลงลิงก์ถ้าเป็น YouTube Mix / Radio (นำหน้าด้วย RD)
+                        if not playlist_id.startswith('RD'):
+                            query = f"https://www.youtube.com/playlist?list={playlist_id}"
+                            print(f"[YouTube] 📋 แปลงลิงก์ผสมเป็นเพลย์ลิสต์แท้: {query}")
+                        else:
+                            print(f"[YouTube] 📻 ตรวจพบ YouTube Mix (ข้ามการแปลงลิงก์ยัดเพลย์ลิสต์)")
 
                 # โยนลิงก์ Spotify ออกไปให้โมดูลเสริมจัดการ (รองรับทั้ง Track และ เพลย์ลิสต์)
                 if "spotify.com" in query:
@@ -259,35 +280,59 @@ class MusicCog(commands.Cog):
                         queue_list = get_queue(ctx.guild.id)
                         loop = asyncio.get_event_loop()
                         
+                        # 1. จองตั๋ว Dummy แบบล็อกที่นั่งตายตัว (ใช้ Reference Dictionary)
+                        reserved_dummies = []
+                        for target in spotify_targets:
+                            dummy = {
+                                'url': '', 
+                                'title': f"{target} (⏳ กำลังดึงเสียงจาก YouTube...)", 
+                                'is_dummy': True
+                            }
+                            queue_list.append(dummy)
+                            reserved_dummies.append(dummy)
+                            
+                        print(f"[Queue] 📥 จองตั๋วคิวล่วงหน้า {len(spotify_targets)} ที่นั่งสำเร็จ")
+                        
+                        # 2. ถ้าคิวว่าง ให้ตัวหมุนเพลย์ลิสต์ทำงานทันทีเลย (มันจะไปสะดุดตั๋วใบแรกแล้วเฝ้ารอจนโหลดเสร็จ)
+                        is_active_initial = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
+                        if not is_active_initial:
+                            self.play_next(ctx)
+                        
                         async def fetch_playlist_tracks_silent():
                             count = 0
-                            for index, target_name in enumerate(spotify_targets, 1):
-                                print(f"[Debug] 🔍 กำลังค้นหาเพลงที่ {index}/{len(spotify_targets)}: `{target_name}` ...")
+                            for index, target_name in enumerate(spotify_targets):
+                                if ctx.voice_client is None:
+                                    break
+                                print(f"[Debug] 🔍 กำลังหมุนเสียงข้ามแพลตฟอร์ม {index+1}/{len(spotify_targets)}: `{target_name}`")
                                 
+                                # เอาคำว่า ytsearch: ออก เพราะใน get_audio_info มันใส่หน้าคำค้นให้อยู่แล้ว ไม่งั้นจะปนกันมั่วไปหมด
                                 s_query = target_name
+                                dummy = reserved_dummies[index]
+                                
                                 try:
                                     s_info = await loop.run_in_executor(None, get_audio_info, s_query)
+                                    
                                     if s_info:
                                         yt_title = s_info[0]['title']
-                                        queue_list.extend(s_info)
-                                        queue_pos = len(queue_list)
+                                        # ล้างข้อมูล Dummy ทิ้งแล้วยัดข้อมูลจริงสวมรอยไปเลย (อัปเดต Reference แท้)
+                                        dummy.clear()
+                                        dummy.update(s_info[0])
                                         count += 1
                                         
-                                        print(f"[Debug] ✅ เจอเพลง `{target_name}` แล้ว! -> `{yt_title}` (คิวชั่วคราวที่ {queue_pos})")
-                                        
-                                        # ถ้าบอทว่างอยู่ และนี่คือเพลงแรก ให้สั่งเล่นเลย
-                                        is_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused() or current_song.get(ctx.guild.id) is not None
-                                        if not is_active and len(queue_list) == 1:
-                                            self.play_next(ctx)
-                                            await ctx.send(f"▶️ เริ่มเล่นเพลงแรก: **{yt_title}**\n*(กำลังดึงคิวที่เหลือลงเบื้องหลังเงียบๆ...)*")
-                                            print(f"[Debug] ▶️ บอทว่างอยู่พอดี เริ่มเล่นเพลงที่ 1 ({yt_title}) อัตโนมัติ!")
+                                        if index == 0:
+                                            await ctx.send(f"▶️ เริ่มเล่นแล้ว: **{yt_title}**\n*(ตั๋วคิวที่เหลือจองที่นั่งไว้ร้อยเปอร์เซ็นต์แล้ว! ไม่มีใครแทรกได้ 💺)*")
                                     else:
-                                        print(f"[Debug] ❌ หาเพลง `{target_name}` ใน YouTube ไม่เจอ!")
+                                        dummy.clear()
+                                        dummy.update({'url': 'error', 'title': target_name, 'skip_error': True})
+                                        
                                 except Exception as e:
-                                    print(f"[Debug] ❌ เกิดข้อผิดพลาดตอนค้นหา `{target_name}`: {e}")
+                                    print(f"[Debug] ❌ เออเร่อตอนหา `{target_name}`: {e}")
+                                    dummy.clear()
+                                    dummy.update({'url': 'error', 'title': target_name, 'skip_error': True})
                             
-                            print(f"[Debug] 🎉 โหลดดึงเพลงจาก YouTube ใส่คิวเสร็จสมบูรณ์! จำนวนทั้งหมด {count} เพลง")
-                            await ctx.send(f"✅ โหลดเพลย์ลิสต์สมบูรณ์แล้ว ({count} เพลง)!")
+                            if ctx.voice_client is not None:
+                                print(f"[Debug] 🎉 ประกอบร่างตั๋วเป็นเพลงเสร็จสับ! {count} เพลง")
+                                await ctx.send(f"✅ โอนเนื้อหาตั๋วเปล่าทั้งหมด เป็นสตรีมมิ่งพร้อมใช้งานแล้ว ({count} สตรีม)!")
                             
                         # เอาขึ้น Background Task ให้มันค่อยๆ ดึงและรายงานผลรัวๆในหน้า CMD
                         self.bot.loop.create_task(fetch_playlist_tracks_silent())
