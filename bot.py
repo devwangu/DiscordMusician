@@ -40,7 +40,7 @@ ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 # สร้างตัวแปรดึงข้อมูลสำหรับแค่ค้นหาหรือเช็คเพลย์ลิสต์แบบเร็ว (extract_flat)
 ytdl_flat_options = {
     'extract_flat': True, # เปลี่ยนเป็น True เพื่อให้มันไม่พยายามโหลดข้อมูลลึกๆ ของวิดีโอ
-    'playlist_items': '1-300', # ให้โควต้าพรีเมียม 1-300 เพลงแรกจากเว็บ 
+    'playlist_items': '1-100', # จำกัดโควต้าดึงเพลย์ลิสต์เหลือ 100 เพลงเพื่อความรวดเร็ว 
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
@@ -269,9 +269,9 @@ class MusicCog(commands.Cog):
                         
                     if isinstance(spotify_results, list): # เป็นเพลย์ลิสต์
                         print(f"[Spotify] 📋 ตรวจพบเพลย์ลิสต์/อัลบั้ม จำนวน {len(spotify_results)} เพลง")
-                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 300)} เพลง)...**\nระบบอาจกินเวลาดึงเพลงสักครู่นะครับ")
+                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 100)} เพลง)...**")
                         
-                        spotify_targets = spotify_results[:300]
+                        spotify_targets = spotify_results[:100]
                         # โชว์รายชื่อเพลงก่อนเข้า YouTube (ซ่อนออกจากแชท แต่ปริ้นท์ใน CMD แทน)
                         print(f"[Debug] รายชื่อเพลงที่ดึงมาจาก Spotify ได้ครบถ้วน ({len(spotify_targets)} เพลง):")
                         for i, trk in enumerate(spotify_targets, 1):
@@ -319,8 +319,8 @@ class MusicCog(commands.Cog):
                                         dummy.update(s_info[0])
                                         count += 1
                                         
-                                        if index == 0:
-                                            await ctx.send(f"▶️ เริ่มเล่นแล้ว: **{yt_title}**\n*(ตั๋วคิวที่เหลือจองที่นั่งไว้ร้อยเปอร์เซ็นต์แล้ว! ไม่มีใครแทรกได้ 💺)*")
+                                        if index == 0 and not is_active_initial:
+                                            await ctx.send(f"▶️ เริ่มเล่นแล้ว: **{yt_title}**")
                                     else:
                                         dummy.clear()
                                         dummy.update({'url': 'error', 'title': target_name, 'skip_error': True})
@@ -332,7 +332,7 @@ class MusicCog(commands.Cog):
                             
                             if ctx.voice_client is not None:
                                 print(f"[Debug] 🎉 ประกอบร่างตั๋วเป็นเพลงเสร็จสับ! {count} เพลง")
-                                await ctx.send(f"✅ โอนเนื้อหาตั๋วเปล่าทั้งหมด เป็นสตรีมมิ่งพร้อมใช้งานแล้ว ({count} สตรีม)!")
+                                await ctx.send(f"✅ โหลดเพลย์ลิสต์ Spotify เสร็จสมบูรณ์! ({count} เพลง)")
                             
                         # เอาขึ้น Background Task ให้มันค่อยๆ ดึงและรายงานผลรัวๆในหน้า CMD
                         self.bot.loop.create_task(fetch_playlist_tracks_silent())
@@ -352,11 +352,11 @@ class MusicCog(commands.Cog):
                     await ctx.send("❌ ไม่พบข้อมูลเพลงจากคำค้นหาหรือลิงก์นี้")
                     return
 
-                # จำกัดเพลงจากเพลย์ลิสต์เพิ่มเป็น 300 เพลง สำหรับรุ่น Premium
-                if len(songs) > 300:
-                    print(f"[Search] ⚠️ เพลย์ลิสต์ยาวเกินไป โหลดแค่ 300 เพลง")
-                    songs = songs[:300]
-                    await ctx.send("📢 **เพิ่มเพลย์ลิสต์ลงคิวแล้ว!** (เปิดโหมด Premium: เพิ่มให้สูงสุดเต็มโควต้า 300 เพลงจุใจฮะ 🎵)")
+                # จำกัดเพลงจากเพลย์ลิสต์เหลือ 100 เพลง
+                if len(songs) > 100:
+                    print(f"[Search] ⚠️ เพลย์ลิสต์ถูกจำกัดความยาวสูงสุดที่ 100 เพลง")
+                    songs = songs[:100]
+                    await ctx.send("📢 **เพิ่มเพลย์ลิสต์ลงคิวแล้ว!** 🎵")
 
                 queue_list = get_queue(ctx.guild.id)
                 queue_list.extend(songs)
