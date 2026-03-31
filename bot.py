@@ -40,7 +40,7 @@ ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 # สร้างตัวแปรดึงข้อมูลสำหรับแค่ค้นหาหรือเช็คเพลย์ลิสต์แบบเร็ว (extract_flat)
 ytdl_flat_options = {
     'extract_flat': True, # เปลี่ยนเป็น True เพื่อให้มันไม่พยายามโหลดข้อมูลลึกๆ ของวิดีโอ
-    'playlist_items': '1-50', # ให้โหลดแค่ 1-50 เพลงแรกจากเว็บเลย จะได้ไม่เสียเวลาโหลดมาทั้งหมด 
+    'playlist_items': '1-300', # ให้โควต้าพรีเมียม 1-300 เพลงแรกจากเว็บ 
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
@@ -228,6 +228,14 @@ class MusicCog(commands.Cog):
 
         async with ctx.typing():
             try:
+                # ดักจับลิงก์ Youtube ที่เป็นแบบพ่วงเพลย์ลิสต์ (มีทั้ง v= และ list=) ให้ดึงเป็นเพลย์ลิสต์ล้วนๆ 100%
+                if ("youtube.com" in query or "youtu.be" in query) and "list=" in query:
+                    import re
+                    match = re.search(r'[?&]list=([a-zA-Z0-9_-]+)', query)
+                    if match:
+                        query = f"https://www.youtube.com/playlist?list={match.group(1)}"
+                        print(f"[YouTube] 📋 แปลงลิงก์ผสมเป็นเพลย์ลิสต์แท้: {query}")
+
                 # โยนลิงก์ Spotify ออกไปให้โมดูลเสริมจัดการ (รองรับทั้ง Track และ เพลย์ลิสต์)
                 if "spotify.com" in query:
                     import spotify
@@ -240,9 +248,9 @@ class MusicCog(commands.Cog):
                         
                     if isinstance(spotify_results, list): # เป็นเพลย์ลิสต์
                         print(f"[Spotify] 📋 ตรวจพบเพลย์ลิสต์/อัลบั้ม จำนวน {len(spotify_results)} เพลง")
-                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 50)} เพลง)...**\nอาจกินเวลาสักครู่นะครับ")
+                        await ctx.send(f"⏳ **กำลังดึงเพลย์ลิสต์จาก Spotify ({min(len(spotify_results), 300)} เพลง)...**\nระบบอาจกินเวลาดึงเพลงสักครู่นะครับ")
                         
-                        spotify_targets = spotify_results[:50]
+                        spotify_targets = spotify_results[:300]
                         # โชว์รายชื่อเพลงก่อนเข้า YouTube (ซ่อนออกจากแชท แต่ปริ้นท์ใน CMD แทน)
                         print(f"[Debug] รายชื่อเพลงที่ดึงมาจาก Spotify ได้ครบถ้วน ({len(spotify_targets)} เพลง):")
                         for i, trk in enumerate(spotify_targets, 1):
@@ -299,11 +307,11 @@ class MusicCog(commands.Cog):
                     await ctx.send("❌ ไม่พบข้อมูลเพลงจากคำค้นหาหรือลิงก์นี้")
                     return
 
-                # จำกัดเพลงจากเพลย์ลิสต์ไม่เกิน 50 เพลง เพื่อป้องกันคิวล้น
-                if len(songs) > 50:
-                    print(f"[Search] ⚠️ เพลย์ลิสต์ยาวเกินไป โหลดแค่ 50 เพลง")
-                    songs = songs[:50]
-                    await ctx.send("📢 **เพิ่มเพลย์ลิสต์ลงคิวแล้ว!** (ดึงมาสูงสุด 50 เพลงน้า 🎵)")
+                # จำกัดเพลงจากเพลย์ลิสต์เพิ่มเป็น 300 เพลง สำหรับรุ่น Premium
+                if len(songs) > 300:
+                    print(f"[Search] ⚠️ เพลย์ลิสต์ยาวเกินไป โหลดแค่ 300 เพลง")
+                    songs = songs[:300]
+                    await ctx.send("📢 **เพิ่มเพลย์ลิสต์ลงคิวแล้ว!** (เปิดโหมด Premium: เพิ่มให้สูงสุดเต็มโควต้า 300 เพลงจุใจฮะ 🎵)")
 
                 queue_list = get_queue(ctx.guild.id)
                 queue_list.extend(songs)

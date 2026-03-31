@@ -40,7 +40,7 @@ def get_spotify_track_info(url):
                 elif entity.get('type') in ['playlist', 'album']:
                     track_list = entity.get('trackList', [])
                     results = []
-                    # ดึงเพลงออกมา (จำกัดสูงสุด 50 เพลงตามหน้า Embed ทั่วไป)
+                    # ดึงเพลงออกมา (เพลย์ลิสต์บางอัน Spotify อาจกั๊กหน้า Embed ไว้ที่ 100 เพลง แต่ถ้ามีเต็มก็ดึงรวดเดียว)
                     for t in track_list:
                         name = t.get('title', '')
                         artist = t.get('subtitle', '')
