@@ -42,5 +42,7 @@ test_log.txt
 test_pythonw.py
 test.bat
 test_spotify_branch.bat
+test_main_branch.bat
+test_dev_branch.bat
 debug_spotify.py
 TODO.md
