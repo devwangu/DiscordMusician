@@ -35,6 +35,7 @@ Thumbs.db
 *.log
 *.exe
 bot_hosted.py
+SYSTEM_ARCHITECTURE.md
 
 # Test
 test_log.txt
